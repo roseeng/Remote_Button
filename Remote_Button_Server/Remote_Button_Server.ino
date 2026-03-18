@@ -20,7 +20,14 @@
 #include <BLEClient.h>
 #include <BLEScan.h>
 
+// Built-in button:
 const int buttonPin = 0; 
+// GPIO A0:
+//const int buttonPin = 18; 
+
+// Todo: use ledc to get fade in and fade out https://docs.espressif.com/projects/arduino-esp32/en/latest/api/ledc.html
+//#define LED_PIN 8
+const int ledPin = 8; // GPIO08, pin A3
 
 #include <Adafruit_NeoPixel.h>
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -62,12 +69,14 @@ class CharacteristicCallbacks : public BLECharacteristicCallbacks {
       Serial.print("Remote switch on");
       pixels.fill(0xFF0000);
       pixels.show();
+      digitalWrite(ledPin, HIGH);
     }
     else
     {
       Serial.print("remote switch off");
       pixels.fill(0x000000);
       pixels.show();
+      digitalWrite(ledPin, LOW);
     }
   }
 
@@ -78,8 +87,6 @@ class CharacteristicCallbacks : public BLECharacteristicCallbacks {
 
 void setupServer() {
   Serial.println("Setting up BLE Server...");
-
-  pinMode(buttonPin, INPUT_PULLUP);
 
   // Create server
   pServer = BLEDevice::createServer();
@@ -113,7 +120,11 @@ void setupServer() {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting BLE Server Coexistence Example...");
+  Serial.println("Starting BLE remote Server...");
+
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
 
   // Initialize BLE device with a name
   BLEDevice::init("ESP32-Coexistence");
@@ -159,12 +170,15 @@ void loop() {
       String value = pServerCharacteristic->getValue();
       Serial.print("Local toggle. Characteristic value: ");
       Serial.println(value.c_str());
+
+      // Toggle
       if (value == "OFF") {
         pServerCharacteristic->setValue("ON ");
         pServerCharacteristic->notify();
         Serial.print("Local switch on");
         pixels.fill(0xFF0000);
         pixels.show();
+        digitalWrite(ledPin, HIGH);
       }
       else {
         pServerCharacteristic->setValue("OFF");
@@ -172,6 +186,7 @@ void loop() {
         Serial.print("Local switch off");
         pixels.fill(0x000000);
         pixels.show();
+        digitalWrite(ledPin, LOW);
       }
     }
     delay(100);
