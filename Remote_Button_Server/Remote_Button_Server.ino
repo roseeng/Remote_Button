@@ -20,6 +20,8 @@
 #include <BLEClient.h>
 #include <BLEScan.h>
 
+const int buttonPin = 0; 
+
 #include <Adafruit_NeoPixel.h>
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
@@ -57,13 +59,13 @@ class CharacteristicCallbacks : public BLECharacteristicCallbacks {
 
     if (value == "ON ")
     {
-      Serial.print("We are on");
+      Serial.print("Remote switch on");
       pixels.fill(0xFF0000);
       pixels.show();
     }
     else
     {
-      Serial.print("We are off");
+      Serial.print("remote switch off");
       pixels.fill(0x000000);
       pixels.show();
     }
@@ -76,6 +78,8 @@ class CharacteristicCallbacks : public BLECharacteristicCallbacks {
 
 void setupServer() {
   Serial.println("Setting up BLE Server...");
+
+  pinMode(buttonPin, INPUT_PULLUP);
 
   // Create server
   pServer = BLEDevice::createServer();
@@ -90,7 +94,7 @@ void setupServer() {
   );
 
   pServerCharacteristic->setCallbacks(new CharacteristicCallbacks());
-  pServerCharacteristic->setValue("Hello from Coexistence Server");
+  pServerCharacteristic->setValue("OFF");
 
   // Start service
   pService->start();
@@ -138,31 +142,39 @@ void loop() {
   unsigned long currentTime = millis();
 
   // Update server characteristic periodically
-  if (currentTime - lastServerUpdate > 1000) {  // Every 1 seconds
+  if (currentTime - lastServerUpdate > 8000) {  // Every 8 seconds
     if (pServerCharacteristic) {
       String value = pServerCharacteristic->getValue();
       Serial.print("Server: Current Characteristic value: ");
       Serial.println(value.c_str());
-      // const char *buf = value.c_str();
-      // for (; *buf !=  '\0'; buf++)
-      //   Serial.println(*buf);
-      // Serial.println("End");
-
-      // if (value == "ON ")
-      // {
-      //   Serial.print("We are on");
-      //   pixels.fill(0xFF0000);
-      //   pixels.show();
-      // }
-      // else
-      // {
-      //   Serial.print("We are off");
-      //   pixels.fill(0x000000);
-      //   pixels.show();
-      // }
     }
 
     lastServerUpdate = currentTime;
+  }
+
+  // Check the local button 
+  int buttonState = digitalRead(buttonPin);
+  if (buttonState == LOW) {
+    if (pServerCharacteristic) {
+      String value = pServerCharacteristic->getValue();
+      Serial.print("Local toggle. Characteristic value: ");
+      Serial.println(value.c_str());
+      if (value == "OFF") {
+        pServerCharacteristic->setValue("ON ");
+        pServerCharacteristic->notify();
+        Serial.print("Local switch on");
+        pixels.fill(0xFF0000);
+        pixels.show();
+      }
+      else {
+        pServerCharacteristic->setValue("OFF");
+        pServerCharacteristic->notify();
+        Serial.print("Local switch off");
+        pixels.fill(0x000000);
+        pixels.show();
+      }
+    }
+    delay(100);
   }
 
   delay(100);

@@ -25,6 +25,9 @@
 const int buttonPin = 0; 
 bool remoteOn = false;
 
+#include <Adafruit_NeoPixel.h>
+Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+
 // Server-side definitions
 #define SERVER_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define SERVER_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -56,13 +59,9 @@ class ClientCallbacks : public BLEClientCallbacks {
 
 // Client notification callback
 static void notifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify) {
-  Serial.print("Client: Notify callback for characteristic ");
-  Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
-  Serial.print(" of data length ");
-  Serial.println(length);
-  Serial.print("Client: Data: ");
-  Serial.write(pData, length);
-  Serial.println();
+  Serial.println("Client: Notify callback for characteristic ");
+  String value = (char *) pData;
+  updateRemoteState(value);
 }
 
 // Scan callbacks
@@ -126,8 +125,7 @@ bool connectToServer() {
   // Read the initial value
   if (pRemoteCharacteristic->canRead()) {
     String value = pRemoteCharacteristic->readValue();
-    Serial.print("Client: Initial characteristic value: ");
-    Serial.println(value.c_str());
+    updateRemoteState(value);
   }
 
   // Register for notifications if available
@@ -139,6 +137,23 @@ bool connectToServer() {
   return true;
 }
 
+void updateRemoteState(String value)
+{
+  Serial.print("Client: Remote value: ");
+  Serial.println(value.c_str());
+
+  if (value == "ON ") {
+    Serial.println("The remote is on");
+    remoteOn = true;
+    pixels.fill(0xFF0000);
+    pixels.show();
+  } else {
+    Serial.println("The remote is off");
+    remoteOn = false;
+    pixels.fill(0x000000);
+    pixels.show();
+  }
+}
 
 void setupClient() {
   Serial.println("Setting up BLE Client...");
@@ -166,10 +181,25 @@ void setup() {
   //setupServer();
   setupClient();
 
+
+#if defined(NEOPIXEL_POWER)
+  // If this board has a power control pin, we must set it to output and high
+  // in order to enable the NeoPixels. We put this in an #if defined so it can
+  // be reused for other boards without compilation errors
+  pinMode(NEOPIXEL_POWER, OUTPUT);
+  digitalWrite(NEOPIXEL_POWER, HIGH);
+#endif
+
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  pixels.setBrightness(20); // not so bright
+
+  pixels.fill(0xFFFF00); // Start with yellow = unknown state
+  pixels.show();
+
   // Start initial scan
   pBLEScan->start(10, false);  // Scan for 10 seconds, don't repeat
 
-  Serial.println("Setup complete. Device is advertising as server and scanning as client.");
+  Serial.println("Setup complete. Device is scanning as client.");
 }
 
 void loop() {
@@ -200,6 +230,16 @@ void loop() {
       pRemoteCharacteristic->writeValue(clientValue.c_str(), clientValue.length());
       Serial.print("Client: Wrote to remote characteristic: ");
       Serial.println(clientValue);
+      
+      if (remoteOn) {
+        pixels.fill(0xFF0000); 
+        pixels.show();
+      } else {
+        pixels.fill(0x000000); 
+        pixels.show();
+      }
+
+      delay(100);
       lastClientWrite = currentTime;
     }
   }
