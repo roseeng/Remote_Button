@@ -16,14 +16,34 @@
  * Based on Arduino BLE examples
  */
 
+/*
+TODO: Use touch pads for toggle and wake up from deep sleep
+https://randomnerdtutorials.com/esp32-touch-pins-arduino-ide/
+https://randomnerdtutorials.com/esp32-touch-wake-up-deep-sleep/
+*/
+
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
 #include <BLEClient.h>
 #include <BLEScan.h>
 
+// For deep sleep:
+#include "driver/rtc_io.h"
+#define BUTTON_PIN_BITMASK(GPIO) (1ULL << GPIO)  // 2 ^ GPIO_NUMBER in hex
+#define USE_EXT0_WAKEUP          1               // 1 = EXT0 wakeup, 0 = EXT1 wakeup
+#define WAKEUP_GPIO              GPIO_NUM_0 //GPIO_NUM_33     // Only RTC IO are allowed - ESP32 Pin example
+
+// Built-in button:
 const int buttonPin = 0; 
+// GPIO18 - A0:
+//const int buttonPin = 18; 
+
+// Remember the remote status
 bool remoteOn = false;
+
+// Timer for when to go to sleep
+static unsigned long lastEvent = 0;
 
 #include <Adafruit_NeoPixel.h>
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -62,6 +82,7 @@ static void notifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, ui
   Serial.println("Client: Notify callback for characteristic ");
   String value = (char *) pData;
   updateRemoteState(value);
+  lastEvent = millis();
 }
 
 // Scan callbacks
@@ -168,11 +189,41 @@ void setupClient() {
   Serial.println("Client: Scanner configured");
 }
 
+void print_wakeup_reason() {
+  esp_sleep_wakeup_cause_t wakeup_reason;
+
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch (wakeup_reason) {
+    case ESP_SLEEP_WAKEUP_EXT0:     Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1:     Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER:    Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP:      Serial.println("Wakeup caused by ULP program"); break;
+    default:                        Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting BLE Client...");
+  delay(1000);
+
+  //Print the wakeup reason for ESP32
+  print_wakeup_reason();
+
+  Serial.println("Starting BLE remote control Client...");
 
   pinMode(buttonPin, INPUT_PULLUP);
+
+  // Configure deep sleep to wake up on button press
+#if USE_EXT0_WAKEUP
+  esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 0);  //1 = High, 0 = Low
+  // Configure pullup/downs via RTCIO to tie wakeup pins to inactive level during deepsleep.
+  // EXT0 resides in the same power domain (RTC_PERIPH) as the RTC IO pullup/downs.
+  // No need to keep that power domain explicitly, unlike EXT1.
+  rtc_gpio_pullup_en(WAKEUP_GPIO);
+  rtc_gpio_pulldown_dis(WAKEUP_GPIO);
+#endif
 
   // Initialize BLE device with a name
   BLEDevice::init("ESP32-Coexistence");
@@ -180,7 +231,6 @@ void setup() {
   // Setup both server and client
   //setupServer();
   setupClient();
-
 
 #if defined(NEOPIXEL_POWER)
   // If this board has a power control pin, we must set it to output and high
@@ -198,6 +248,8 @@ void setup() {
 
   // Start initial scan
   pBLEScan->start(10, false);  // Scan for 10 seconds, don't repeat
+
+  lastEvent = millis();
 
   Serial.println("Setup complete. Device is scanning as client.");
 }
@@ -224,6 +276,7 @@ void loop() {
   int buttonState = digitalRead(buttonPin);
   if (clientConnected && pRemoteCharacteristic && buttonState == LOW) {
     remoteOn = !remoteOn;
+    lastEvent = millis();
 
     if (pRemoteCharacteristic->canWrite()) {
       String clientValue = remoteOn ? "ON " : "OFF";
@@ -249,6 +302,13 @@ void loop() {
     Serial.println("Client: Restarting scan...");
     pBLEScan->start(10, false);
     lastScanStart = currentTime;
+  }
+
+  // If nothing happens, go to deep sleep
+  if (currentTime - lastEvent > 30000)
+  {
+    Serial.println("Going to sleep now");
+    esp_deep_sleep_start();
   }
 
   delay(100);

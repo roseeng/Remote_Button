@@ -120,7 +120,7 @@ void setupServer() {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting BLE remote Server...");
+  Serial.println("Starting BLE remote control Server...");
 
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
